@@ -22,6 +22,7 @@ from src.rag.vector_store import VectorStoreManager
 from src.agent.agent import AcademicRAGAgent
 from src.tools.bulk_arxiv import bulk_fetch_arxiv
 from src.tools.survey_writer import generate_survey
+from src.memory.persistent_memory import PersistentMemory
 
 console = Console()
 
@@ -42,25 +43,29 @@ HELP_TEXT = """
   [cyan]load_dir <directory>[/cyan]     -- Index all documents in a folder
 
 [bold]arXiv Commands:[/bold]
-  [cyan]bulk_search <topic> [N][/cyan]  -- Fetch & index N abstracts from arXiv (default 50)
-                               Example: bulk_search RAG large language model 100
+  [cyan]bulk_search <topic> [N][/cyan]  -- Fetch & index N abstracts (default 50)
+                               Example: bulk_search RAG LLM 100
 
 [bold]Survey Generation:[/bold]
   [cyan]survey <topic>[/cyan]           -- Generate a full survey paper (Markdown)
-                               Example: survey Retrieval-Augmented Generation
   [cyan]survey <topic> --out <file>[/cyan]  -- Save to specific file
 
+[bold]Memory Commands:[/bold]
+  [cyan]remember <note>[/cyan]          -- Save a fact/note to permanent memory
+  [cyan]memories[/cyan]                 -- Show all saved memories & session archive
+  [cyan]forget <id>[/cyan]              -- Delete a memory by ID
+  [cyan]clear_memory[/cyan]             -- Archive this session and reset chat
+
 [bold]System Commands:[/bold]
-  [cyan]status[/cyan]                   -- Show knowledge base stats
-  [cyan]clear_memory[/cyan]             -- Reset conversation history
+  [cyan]status[/cyan]                   -- Show knowledge base & memory stats
   [cyan]clear_db[/cyan]                 -- Wipe the vector store
   [cyan]help[/cyan]                     -- Show this help
-  [cyan]exit[/cyan]                     -- Quit
+  [cyan]exit[/cyan]                     -- Save session and quit
 
 [bold]Example questions:[/bold]
   What is the core contribution of the Attention paper?
   How does RAG differ from fine-tuning?
-  Compare the methods in the indexed papers
+  Search for recent papers on LLM agents
 """
 
 
@@ -82,15 +87,18 @@ def check_env():
 
 
 def print_status(vector_store: VectorStoreManager, agent: AcademicRAGAgent):
-    """打印当前系统状态"""
+    """Print current system status including memory stats."""
+    pm = agent.persistent_memory
     table = Table(box=box.ROUNDED, show_header=False, padding=(0, 2))
-    table.add_column("项目", style="cyan")
-    table.add_column("状态", style="white")
-    table.add_row("知识库向量数", f"[bold]{vector_store.doc_count}[/bold] 个块")
-    table.add_row("对话历史轮数", f"[bold]{agent.history_turns}[/bold] 轮")
-    table.add_row("记忆窗口大小", f"{agent.memory_window} 轮")
-    table.add_row("向量库路径", str(vector_store.store_path))
-    console.print(Panel(table, title="系统状态", border_style="blue"))
+    table.add_column("Item", style="cyan")
+    table.add_column("Value", style="white")
+    table.add_row("Knowledge base", f"[bold]{vector_store.doc_count}[/bold] vectors")
+    table.add_row("Chat turns (session)", f"[bold]{agent.history_turns}[/bold]")
+    table.add_row("Fact memory", f"[bold]{pm.fact_count}[/bold] saved notes")
+    table.add_row("Session archive", f"[bold]{pm.session_count}[/bold] sessions")
+    table.add_row("Vector store path", str(vector_store.store_path))
+    table.add_row("Memory path", str(pm.memory_dir))
+    console.print(Panel(table, title="System Status", border_style="blue"))
 
 
 def run_interactive(agent: AcademicRAGAgent, loader: AcademicDocumentLoader, vector_store: VectorStoreManager):
@@ -104,9 +112,19 @@ def run_interactive(agent: AcademicRAGAgent, loader: AcademicDocumentLoader, vec
             if not user_input:
                 continue
 
-            # 处理命令
+            # -- Commands --
             if user_input.lower() in ("exit", "quit", "q"):
-                console.print("[dim]再见！[/dim]")
+                # Auto-save session summary before exiting
+                if agent.history_turns > 0:
+                    console.print("[dim]Saving session summary...[/dim]")
+                    try:
+                        summary = agent.chat(
+                            "Summarise our conversation in 1-2 sentences for future reference."
+                        )
+                        agent.persistent_memory.save_session(summary, agent.history_turns)
+                    except Exception:
+                        pass
+                console.print("[dim]Goodbye![/dim]")
                 break
 
             elif user_input.lower() == "help":
@@ -116,7 +134,16 @@ def run_interactive(agent: AcademicRAGAgent, loader: AcademicDocumentLoader, vec
                 print_status(vector_store, agent)
 
             elif user_input.lower() == "clear_memory":
-                agent.clear_memory()
+                # Auto-generate summary before clearing
+                summary = ""
+                if agent.history_turns > 0:
+                    try:
+                        summary = agent.chat(
+                            "In 1-2 sentences, summarise what we discussed this session."
+                        )
+                    except Exception:
+                        pass
+                agent.clear_memory(summary=summary)
 
             elif user_input.lower() == "clear_db":
                 confirm = Prompt.ask(
@@ -139,6 +166,20 @@ def run_interactive(agent: AcademicRAGAgent, loader: AcademicDocumentLoader, vec
                 if docs:
                     vector_store.add_documents(docs)
                     agent.reload_tools()
+
+            elif user_input.lower().startswith("remember "):
+                note = user_input[9:].strip()
+                agent.persistent_memory.remember(note)
+
+            elif user_input.lower() == "memories":
+                agent.persistent_memory.show_memories()
+
+            elif user_input.lower().startswith("forget "):
+                try:
+                    fact_id = int(user_input[7:].strip())
+                    agent.persistent_memory.forget(fact_id)
+                except ValueError:
+                    console.print("[red]Usage: forget <id number>[/red]")
 
             elif user_input.lower().startswith("bulk_search "):
                 # bulk_search <topic> [max_results]
@@ -222,6 +263,9 @@ def main():
 
     console.print("[dim]正在初始化系统...[/dim]\n")
 
+    memory_dir = os.getenv("MEMORY_PATH", "./memory")
+
+    persistent_memory = PersistentMemory(memory_dir=memory_dir)
     vector_store = VectorStoreManager(store_path, embedding_model)
     loader = AcademicDocumentLoader()
     agent = AcademicRAGAgent(
@@ -230,6 +274,7 @@ def main():
         memory_window=memory_window,
         retrieval_top_k=top_k,
         max_tokens=max_tokens,
+        persistent_memory=persistent_memory,
     )
 
     run_interactive(agent, loader, vector_store)

@@ -36,6 +36,7 @@ from rich.console import Console
 
 from src.rag.vector_store import VectorStoreManager
 from src.tools.arxiv_tool import arxiv_search_tool
+from src.memory.persistent_memory import PersistentMemory
 
 console = Console()
 
@@ -75,12 +76,20 @@ class AcademicRAGAgent:
         retrieval_top_k: int = 4,
         max_tokens: int = 2048,
         temperature: float = 0.3,
+        persistent_memory: PersistentMemory = None,
     ):
         self.vector_store = vector_store
         self.memory_window = memory_window
         self._top_k = retrieval_top_k
-        self._thread_id = str(uuid.uuid4())
         self._turn_count = 0
+
+        # Persistent memory (facts + session archive)
+        self.persistent_memory = persistent_memory or PersistentMemory()
+
+        # Restore thread_id from last session, or start fresh
+        saved_thread = self.persistent_memory.thread_id
+        self._thread_id = saved_thread if saved_thread else str(uuid.uuid4())
+        self.persistent_memory.save_thread_id(self._thread_id)
 
         # LLM (OpenAI-compatible endpoint)
         self.llm = ChatOpenAI(
@@ -134,15 +143,16 @@ class AcademicRAGAgent:
         """
         Compile LangGraph ReAct agent.
 
-        create_react_agent returns a CompiledGraph that handles:
-            - Message state management
-            - Tool call / observe / respond loop
-            - Thread-based memory via checkpointer
+        Injects persistent memory context (saved facts + session summaries)
+        into the system prompt so the agent 'remembers' across restarts.
         """
+        mem_context = self.persistent_memory.build_context()
+        prompt = SYSTEM_PROMPT + ("\n\n" + mem_context if mem_context else "")
+
         return create_react_agent(
             model=self.llm,
             tools=self.tools,
-            prompt=SYSTEM_PROMPT,
+            prompt=prompt,
             checkpointer=self.checkpointer,
         )
 
@@ -180,13 +190,22 @@ class AcademicRAGAgent:
         self.graph = self._build_graph()
         console.print("[green]Agent graph rebuilt with updated tools[/green]")
 
-    def clear_memory(self):
+    def clear_memory(self, summary: str = ""):
         """
         Clear conversation memory by starting a new LangGraph thread.
+
+        If a summary is provided, archives it to episodic memory before clearing.
         Previous thread data remains in MemorySaver but is no longer referenced.
         """
+        # Archive current session to episodic memory
+        if summary and self._turn_count > 0:
+            self.persistent_memory.save_session(summary, self._turn_count)
+
         self._thread_id = str(uuid.uuid4())
+        self.persistent_memory.save_thread_id(self._thread_id)
         self._turn_count = 0
+        # Rebuild graph to inject latest memory context into prompt
+        self.graph = self._build_graph()
         console.print(
             f"[yellow]Memory cleared — new session: {self._thread_id[:8]}...[/yellow]"
         )
