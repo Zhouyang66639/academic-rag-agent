@@ -11,3 +11,8 @@ STARTUP.md
 AI_CONTEXT.md
 *.log
 err.log
+
+# Private / debug files — not for public repo
+handoff/
+check_models.py
+diagnose.py
