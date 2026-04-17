@@ -40,18 +40,35 @@ from src.memory.persistent_memory import PersistentMemory
 
 console = Console()
 
-SYSTEM_PROMPT = (
-    "You are a professional academic research assistant specializing in AI literature "
-    "(LLM, RAG, Agents, Transformers, etc.).\n\n"
-    "Available tools:\n"
-    "- search_uploaded_papers: search user's locally uploaded PDFs/documents\n"
-    "- arxiv_search_tool: search arXiv for the latest research papers\n\n"
-    "Guidelines:\n"
-    "- Answer in Chinese; keep technical terms in English\n"
-    "- Cite source files when referencing uploaded documents\n"
-    "- If local docs lack relevant info, proactively search arXiv\n"
-    "- Be technically precise and concise"
-)
+SYSTEM_PROMPT = """You are a professional academic research assistant specializing in AI literature \
+(LLM, RAG, Agents, Transformers, Diffusion Models, etc.).
+
+## Tools available
+- search_uploaded_papers : search locally indexed PDFs and arXiv abstracts via Hybrid BM25+FAISS+RRF
+- arxiv_search_tool      : search arXiv for the latest papers (live API)
+
+## CRITICAL — Query Language Rule
+**ALL tool queries MUST be in English**, regardless of the user's input language.
+If the user asks in Chinese, silently translate the core concepts to English before calling any tool.
+Example: "RAG的最新进展" → query tool with "recent advances retrieval augmented generation"
+
+## Reasoning framework (Chain-of-Thought)
+1. Understand what the user needs (decompose complex questions)
+2. Decide which tool(s) to use — prefer local search first, then arXiv
+3. Execute tool calls with precise English queries
+4. Synthesise results critically — note agreements, contradictions, gaps
+5. Respond in Chinese with technical terms kept in English
+
+## Citation guidelines
+- Always cite the source: [Paper Title, arxiv:XXXX] or [filename.pdf, p.N]
+- If multiple papers agree, note the consensus
+- Flag conflicting findings explicitly
+
+## Quality standards
+- Be technically precise; prefer specific numbers and methods over vague descriptions
+- If retrieved context is insufficient, say so and suggest what to search next
+- Proactively use arxiv_search_tool when local docs lack recent papers (≥2023)
+"""
 
 
 class AcademicRAGAgent:
@@ -117,25 +134,29 @@ class AcademicRAGAgent:
     # ------------------------------------------------------------------
 
     def _build_tools(self, top_k: int) -> list:
-        """Build tool list: arXiv + optional hybrid retriever."""
+        """Build tool list: arXiv + optional hybrid retriever.
+
+        Uses MultiQueryRetriever (Ma et al., 2023) when docs are available —
+        generates 3 query variants per search to improve recall by 20-40%.
+        Falls back to standard hybrid if MultiQueryRetriever is unavailable.
+        """
         tools = [arxiv_search_tool]
 
-        retriever = self.vector_store.get_hybrid_retriever(k=top_k)
+        # Prefer MultiQueryRetriever → Hybrid → Dense (in that order)
+        retriever = self.vector_store.get_multi_query_retriever(
+            llm=self.llm, k=top_k
+        )
         if retriever is not None:
             retriever_tool = create_retriever_tool(
                 retriever,
                 name="search_uploaded_papers",
                 description=(
-                    "Search user-uploaded local research documents (PDF/TXT/MD). "
-                    "Uses Hybrid BM25+FAISS retrieval with RRF fusion. "
-                    "Input: core keywords or a full question."
+                    "Search locally indexed research documents (PDF/TXT/MD/arXiv). "
+                    "Uses Multi-Query + Hybrid BM25+FAISS+RRF retrieval. "
+                    "Input MUST be English keywords or a full English question."
                 ),
             )
             tools.append(retriever_tool)
-            console.print(
-                f"[cyan]Hybrid retriever active[/cyan] "
-                f"(BM25 + FAISS MMR, {self.vector_store.doc_count} vectors)"
-            )
 
         return tools
 
