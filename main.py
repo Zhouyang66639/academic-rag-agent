@@ -14,8 +14,9 @@ from rich.prompt import Prompt
 from rich.table import Table
 from rich import box
 
-# 加载环境变量
-load_dotenv()
+# 加载环境变量（绝对路径，从任意目录都能找到 .env）
+_PROJECT_ROOT = Path(__file__).parent
+load_dotenv(_PROJECT_ROOT / ".env")
 
 from src.rag.document_loader import AcademicDocumentLoader
 from src.rag.vector_store import VectorStoreManager
@@ -72,7 +73,7 @@ HELP_TEXT = """
 def check_env():
     """Check required environment variables are configured."""
     api_key = os.getenv("OPENAI_API_KEY", "")
-    placeholders = ("sk-xxx", "AIzaxxx", "gsk_xxx", "your_key", "")
+    placeholders = ("sk-xxx", "AIzaxxx", "gsk_xxx", "your_key", "your-key")
     if not api_key or any(api_key.startswith(p) for p in placeholders):
         console.print(
             Panel(
