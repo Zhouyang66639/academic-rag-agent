@@ -70,7 +70,7 @@ The retrieval system combines two complementary search strategies:
 
 - **BM25 (sparse)** — keyword matching, excellent for technical terms and paper titles
 - **FAISS MMR (dense)** — semantic similarity with diversity, handles paraphrasing
-- **RRF Fusion** — `score = Σ 1/(60 + rank)` — merges rankings without parameter tuning
+- **RRF Fusion** — `score = Σ 1/(60 + rank + 1)` — merges rankings without parameter tuning (rank is 0-indexed; k=60 per Cormack et al.)
 
 ---
 
