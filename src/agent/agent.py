@@ -52,12 +52,20 @@ SYSTEM_PROMPT = """You are a professional academic research assistant specializi
 If the user asks in Chinese, silently translate the core concepts to English before calling any tool.
 Example: "RAG的最新进展" → query tool with "recent advances retrieval augmented generation"
 
+## When NOT to use tools
+**Do NOT call any tools** for:
+- Simple greetings or chitchat ("hello", "how are you", etc.)
+- Questions about your own capabilities or instructions
+- General knowledge questions not related to AI research papers
+For those, respond directly without using any tools.
+
 ## Reasoning framework (Chain-of-Thought)
-1. Understand what the user needs (decompose complex questions)
-2. Decide which tool(s) to use — prefer local search first, then arXiv
-3. Execute tool calls with precise English queries
-4. Synthesise results critically — note agreements, contradictions, gaps
-5. Respond in Chinese with technical terms kept in English
+1. Determine if this is an academic/research question — if not, respond DIRECTLY without tools
+2. Understand what the user needs (decompose complex questions)
+3. Decide which tool(s) to use — prefer local search first, then arXiv
+4. Execute tool calls with precise English queries
+5. Synthesise results critically — note agreements, contradictions, gaps
+6. Respond in Chinese with technical terms kept in English
 
 ## Citation guidelines
 - Always cite the source: [Paper Title, arxiv:XXXX] or [filename.pdf, p.N]
@@ -108,12 +116,27 @@ class AcademicRAGAgent:
         self._thread_id = saved_thread if saved_thread else str(uuid.uuid4())
         self.persistent_memory.save_thread_id(self._thread_id)
 
-        # LLM (OpenAI-compatible endpoint)
-        self.llm = ChatOpenAI(
-            model=model_name,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
+        # LLM — auto-detect provider from model name
+        if model_name.startswith("gemini"):
+            # Use native Google Generative AI SDK (avoids OpenAI-compat quota issues)
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            import google.generativeai as genai
+            genai.configure(api_key=os.getenv("OPENAI_API_KEY"))
+            self.llm = ChatGoogleGenerativeAI(
+                model=model_name,
+                google_api_key=os.getenv("OPENAI_API_KEY"),
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+            )
+        else:
+            # OpenAI-compatible endpoint (SiliconFlow, Groq, OpenRouter, etc.)
+            # streaming=False: prevents surrogate chars from SSE stream on free-tier providers
+            self.llm = ChatOpenAI(
+                model=model_name,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                streaming=False,
+            )
 
         # MemorySaver: stateful conversation checkpointing per thread
         self.checkpointer = MemorySaver()
@@ -196,13 +219,19 @@ class AcademicRAGAgent:
         try:
             result = self.graph.invoke(
                 {"messages": [HumanMessage(content=user_input)]},
-                config=self._config,
+                config={**self._config, "recursion_limit": 10},
             )
             self._turn_count += 1
             # Last element in messages list is always the final AI response
-            return result["messages"][-1].content
+            raw = result["messages"][-1].content
+            # Clean surrogates/unprintable chars (Windows console safety)
+            return raw.encode("utf-8", errors="replace").decode("utf-8")
         except Exception as e:
-            return f"Error: {e}"
+            import traceback
+            traceback.print_exc()  # Print full traceback to stderr for diagnosis
+            # Clean surrogates from error message (provider error responses may contain binary bytes)
+            err_str = str(e).encode("utf-8", errors="replace").decode("utf-8")
+            return f"Error: {err_str}"
 
     def reload_tools(self, top_k: Optional[int] = None):
         """Reload tools after new documents are indexed."""

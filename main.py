@@ -5,7 +5,15 @@ Main Entry Point - 交互式命令行界面
 
 import os
 import sys
+import io
 from pathlib import Path
+
+# Fix Windows console encoding — prevents surrogate/Unicode crashes
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+os.environ.setdefault('PYTHONIOENCODING', 'utf-8:replace')
 
 from dotenv import load_dotenv
 from rich.console import Console
@@ -234,7 +242,13 @@ def run_interactive(agent: AcademicRAGAgent, loader: AcademicDocumentLoader, vec
             # 正常对话
             else:
                 console.print("\n[bold blue]Agent[/bold blue] [dim]正在思考...[/dim]")
-                response = agent.chat(user_input)
+                try:
+                    response = agent.chat(user_input)
+                    # Triple-safety: clean any surrogates that escaped agent.py
+                    response = response.encode("utf-8", errors="replace").decode("utf-8")
+                except Exception as e:
+                    response = str(e).encode("utf-8", errors="replace").decode("utf-8")
+                    response = f"Error: {response}"
                 console.print(
                     Panel(
                         response,

@@ -64,6 +64,12 @@ def format_arxiv_results(results: List[Dict]) -> str:
     return "\n".join(lines)
 
 
+
+def _clean(text: str) -> str:
+    """Remove lone surrogates from text (arXiv data can contain non-UTF-8 bytes)."""
+    return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
 # LangChain Tool 包装，方便 Agent 直接调用
 @tool
 def arxiv_search_tool(query: str) -> str:
@@ -81,6 +87,12 @@ def arxiv_search_tool(query: str) -> str:
     console.print(f"[dim]arXiv search: {query}[/dim]")
     try:
         results = search_arxiv(query, max_results=5)
-        return format_arxiv_results(results)
+        # Clean each field to prevent surrogate chars from corrupting LLM requests
+        for paper in results:
+            paper["title"] = _clean(paper["title"])
+            paper["abstract"] = _clean(paper["abstract"])
+            paper["authors"] = [_clean(a) for a in paper["authors"]]
+        output = format_arxiv_results(results)
+        return _clean(output)  # Final safety pass
     except Exception as e:
         return f"arXiv 搜索失败: {e}。请检查网络连接。"

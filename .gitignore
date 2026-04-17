@@ -9,3 +9,5 @@ papers/
 .DS_Store
 STARTUP.md
 AI_CONTEXT.md
+*.log
+err.log
