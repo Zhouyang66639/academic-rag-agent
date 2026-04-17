@@ -13,7 +13,7 @@ from langchain_community.document_loaders import (
     TextLoader,
     UnstructuredMarkdownLoader,
 )
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from rich.console import Console
 
 console = Console()
@@ -45,17 +45,19 @@ class AcademicDocumentLoader:
         )
 
     def load_file(self, file_path: str) -> List[Document]:
-        """加载单个文件并分块"""
+        """Load a single file and split into chunks. Returns [] on error."""
         path = Path(file_path)
         if not path.exists():
-            raise FileNotFoundError(f"文件不存在: {file_path}")
+            console.print(f"[red]File not found: {file_path}[/red]")
+            return []
 
         ext = path.suffix.lower()
         if ext not in self.SUPPORTED_EXTENSIONS:
-            raise ValueError(
-                f"不支持的文件格式: {ext}，"
-                f"支持: {list(self.SUPPORTED_EXTENSIONS.keys())}"
+            console.print(
+                f"[red]Unsupported format: {ext}. "
+                f"Supported: {list(self.SUPPORTED_EXTENSIONS.keys())}[/red]"
             )
+            return []
 
         console.print(
             f"[cyan] 加载文件:[/cyan] {path.name} "

@@ -52,16 +52,16 @@ HELP_TEXT = """
 
 
 def check_env():
-    """检查必要的环境变量是否已配置"""
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key or api_key.startswith("sk-xxx") or api_key.startswith("AIzaxxx"):
+    """Check required environment variables are configured."""
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    placeholders = ("sk-xxx", "AIzaxxx", "gsk_xxx", "your_key", "")
+    if not api_key or any(api_key.startswith(p) for p in placeholders):
         console.print(
             Panel(
-                "[red]未配置 API Key！\n\n"
-                "请复制 .env.example 为 .env 并填入你的 API Key:\n"
-                "  copy .env.example .env\n"
-                "  # 然后编辑 .env 文件",
-                title="配置错误",
+                "[red]API Key not configured!\n\n"
+                "Copy .env.example to .env and fill in your API key:\n"
+                "  copy .env.example .env",
+                title="Configuration Error",
                 border_style="red",
             )
         )
@@ -152,8 +152,8 @@ def main():
 
     # 初始化组件
     store_path = os.getenv("VECTOR_STORE_PATH", "./vector_store")
-    embedding_model = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-    model_name = os.getenv("OPENAI_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+    embedding_model = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+    model_name = os.getenv("OPENAI_MODEL", "Qwen/Qwen2.5-72B-Instruct")
     memory_window = int(os.getenv("MEMORY_WINDOW_SIZE", "10"))
     top_k = int(os.getenv("RETRIEVAL_TOP_K", "4"))
     max_tokens = int(os.getenv("MAX_TOKENS", "2048"))

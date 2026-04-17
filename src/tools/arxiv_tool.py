@@ -5,7 +5,7 @@ arXiv Search Tool
 
 import arxiv
 from typing import List, Dict
-from langchain.tools import tool
+from langchain_core.tools import tool
 from rich.console import Console
 
 console = Console()
@@ -26,7 +26,7 @@ def search_arxiv(query: str, max_results: int = 5) -> List[Dict]:
     search = arxiv.Search(
         query=query,
         max_results=max_results,
-        sort_by=arxiv.SortCriterion.Relevance,
+        sort_by=arxiv.SortCriterion.SubmittedDate,  # newest first
     )
 
     results = []
@@ -78,7 +78,7 @@ def arxiv_search_tool(query: str) -> str:
     Returns:
         格式化的论文搜索结果
     """
-    console.print(f"[dim] 搜索 arXiv: {query}[/dim]")
+    console.print(f"[dim]arXiv search: {query}[/dim]")
     try:
         results = search_arxiv(query, max_results=5)
         return format_arxiv_results(results)
