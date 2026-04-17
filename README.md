@@ -24,7 +24,7 @@ A production-grade AI agent that combines **retrieval-augmented generation**, **
 ```
 # Index 100 arXiv papers in seconds
 You > bulk_search RAG retrieval augmented generation LLM 100
-[100 papers indexed via BM25 + FAISS hybrid retriever]
+[✓ 100 papers indexed via BM25 + FAISS hybrid retriever]
 
 # Ask questions grounded in real papers
 You > What are the main limitations of current RAG systems?
@@ -32,86 +32,19 @@ Agent > Based on indexed papers, the key limitations are: (1) retrieval quality.
 
 # Save important insights to persistent memory
 You > remember RRF fusion formula: score = sum(1 / (k + rank_i))
-[Saved to memory #1]
+[✓ Saved to memory #1 — persists across restarts]
 
 # Generate a full survey paper automatically
 You > survey Retrieval-Augmented Generation for Large Language Models
 [Writing 8 sections via Map-Reduce pipeline...]
-[Saved: survey_Retrieval-Augmented_Generation_20260417_1800.md]
-
-# Memory persists across restarts
-[Next session: fact notes auto-injected into system prompt]
+[✓ Saved: survey_Retrieval-Augmented_Generation_20260417_1800.md]
 ```
 
 ---
 
 ## System Architecture
 
-```mermaid
-flowchart TD
-    A([User Input]) --> CMD{Command\nRouter}
-
-    CMD -->|question| B
-    CMD -->|bulk_search| J
-    CMD -->|survey| K
-    CMD -->|remember| L
-
-    subgraph Agent ["LangGraph ReAct Agent"]
-        B[Agent Node\nLLM Reasoning] -->|tool call| C{Tool\nRouter}
-        C -->|local docs| D[search_uploaded_papers]
-        C -->|latest papers| E[arxiv_search_tool]
-        C -->|general| F[Direct Answer]
-        D --> G[Observation]
-        E --> G
-        G --> B
-    end
-
-    subgraph HybridSearch ["Hybrid Retrieval Pipeline"]
-        D --> H1[BM25 Sparse]
-        D --> H2[FAISS MMR Dense]
-        H1 --> H3["RRF Fusion\n1÷(60+rank)"]
-        H2 --> H3
-        H3 --> H4[(Top-K Docs)]
-    end
-
-    subgraph Memory ["Three-Tier Memory System"]
-        M1[("Tier 1\nWorking Memory\nLangGraph MemorySaver")]
-        M2[("Tier 2\nEpisodic Memory\nSession Archive JSON")]
-        M3[("Tier 3\nSemantic Memory\nUser Fact Notes JSON")]
-        M1 -.->|"auto-checkpoint\n(session)"| M2
-        M3 -.->|"inject into\nsystem prompt"| B
-    end
-
-    subgraph BulkIndex ["Bulk arXiv Indexer"]
-        J --> J1[arXiv API\nfetch N abstracts]
-        J1 --> J2[Document Objects]
-        J2 --> H1
-        J2 --> H2
-    end
-
-    subgraph SurveyPipeline ["Survey Generation (Map-Reduce)"]
-        K --> K1[Section 1: Abstract]
-        K --> K2[Section 2: Intro]
-        K --> K3[Section 3-7: ...]
-        K1 & K2 & K3 --> K4[Markdown Assembly]
-        K4 --> K5([📄 survey_.md])
-        H4 -.->|context chunks| K1
-        H4 -.->|context chunks| K2
-        H4 -.->|context chunks| K3
-    end
-
-    L --> M3
-    F --> M([Final Answer])
-    H4 --> M
-
-    style A fill:#4f46e5,color:#fff
-    style M fill:#059669,color:#fff
-    style H3 fill:#d97706,color:#fff
-    style M1 fill:#7c3aed,color:#fff
-    style M2 fill:#6d28d9,color:#fff
-    style M3 fill:#5b21b6,color:#fff
-    style K5 fill:#0891b2,color:#fff
-```
+![System Architecture](docs/images/architecture.png)
 
 ---
 
@@ -122,10 +55,44 @@ flowchart TD
 | **Hybrid Search** | BM25 (sparse) + FAISS MMR (dense) + RRF | Cormack et al., SIGIR 2009 |
 | **LangGraph Agent** | `create_react_agent` + `MemorySaver` | Replaces deprecated `AgentExecutor` |
 | **FastEmbed** | `BAAI/bge-small-en-v1.5` ONNX Runtime | No PyTorch — ~150MB vs ~1GB |
-| **Bulk Indexing** | arXiv API → 100+ paper abstracts | Respects rate limits, progress bar |
+| **Bulk Indexing** | arXiv API → 100+ paper abstracts | Rate-limited, progress bar |
 | **Survey Writer** | Map-Reduce pipeline, 8 sections | RAG-grounded, saves to `.md` |
 | **3-Tier Memory** | Working / Episodic / Semantic | Persists across restarts as JSON |
 | **Free API** | SiliconFlow Qwen / Groq Llama | Zero cost to start |
+
+---
+
+## Hybrid Search Pipeline
+
+![Hybrid Search Pipeline](docs/images/hybrid_search.png)
+
+The retrieval system combines two complementary search strategies:
+
+- **BM25 (sparse)** — keyword matching, excellent for technical terms and paper titles
+- **FAISS MMR (dense)** — semantic similarity with diversity, handles paraphrasing
+- **RRF Fusion** — `score = Σ 1/(60 + rank)` — merges rankings without parameter tuning
+
+---
+
+## Three-Tier Memory System
+
+![Memory System](docs/images/memory_system.png)
+
+| Tier | Type | Storage | Lifetime |
+|------|------|---------|---------|
+| 1 | Working Memory | LangGraph MemorySaver | Session only |
+| 2 | Episodic Memory | `memory/memory.json` | Permanent, trimmed to last 10 |
+| 3 | Semantic Memory | `memory/memory.json` | Permanent until `forget <id>` |
+
+> Inspired by Tulving (1972) *Episodic & Semantic Memory*, Park et al. (2023) *Generative Agents*
+
+---
+
+## Survey Generation Pipeline
+
+![Survey Pipeline](docs/images/survey_pipeline.png)
+
+Map-Reduce workflow: for each of the 8 sections, the hybrid retriever finds the most relevant paper chunks, the LLM writes that section using them as grounding context, then all sections are assembled into a final Markdown document.
 
 ---
 
@@ -145,7 +112,7 @@ conda activate rag-agent
 
 ```bash
 copy .env.example .env
-# Edit .env and fill in your API key
+# Edit .env — fill in OPENAI_API_KEY
 ```
 
 | Provider | Sign Up | Free Model |
@@ -184,7 +151,6 @@ python main.py
 |---------|-------------|
 | `bulk_search <topic> [N]` | Fetch & index N abstracts from arXiv (default 50) |
 
-Example:
 ```
 bulk_search retrieval augmented generation survey 100
 ```
@@ -195,7 +161,6 @@ bulk_search retrieval augmented generation survey 100
 | `survey <topic>` | Generate a complete survey paper (Markdown) |
 | `survey <topic> --out file.md` | Save to a specific file |
 
-Example workflow:
 ```
 bulk_search RAG large language model 80
 survey Retrieval-Augmented Generation for LLMs
@@ -219,87 +184,6 @@ survey Retrieval-Augmented Generation for LLMs
 
 ---
 
-## Memory System Architecture
-
-```mermaid
-flowchart LR
-    subgraph Tier1 ["Tier 1 — Working Memory"]
-        A[LangGraph MemorySaver\nIn-session message history\nAuto-managed by StateGraph]
-    end
-
-    subgraph Tier2 ["Tier 2 — Episodic Memory"]
-        B[Session Archive\nmemory/memory.json\nAuto-saved on exit & clear]
-    end
-
-    subgraph Tier3 ["Tier 3 — Semantic Memory"]
-        C[User Fact Notes\nmemory/memory.json\nremember command]
-    end
-
-    A -->|session ends| B
-    B & C -->|next startup| D[System Prompt\nInjection]
-    D --> E([Agent has context\nfrom past sessions])
-
-    style A fill:#7c3aed,color:#fff
-    style B fill:#6d28d9,color:#fff
-    style C fill:#5b21b6,color:#fff
-    style E fill:#059669,color:#fff
-```
-
-**Reference:** Inspired by Tulving (1972) *Episodic & Semantic Memory*, Park et al. (2023) *Generative Agents*, and Zhong et al. (2024) *MemoryBank*.
-
----
-
-## Survey Generation Pipeline
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant SurveyWriter
-    participant HybridRetriever
-    participant LLM
-
-    User->>SurveyWriter: survey <topic>
-    Note over SurveyWriter: 8 sections to write
-
-    loop For each section (Abstract → Conclusion)
-        SurveyWriter->>HybridRetriever: "{topic} {section_name}"
-        HybridRetriever-->>SurveyWriter: top-5 BM25+FAISS+RRF chunks
-        SurveyWriter->>LLM: context + section writing prompt
-        LLM-->>SurveyWriter: section draft
-    end
-
-    SurveyWriter->>User: assembled survey.md (~3500 words)
-```
-
----
-
-## RAG Pipeline Detail
-
-```mermaid
-flowchart LR
-    subgraph Indexing
-        A[PDF / TXT / MD\narXiv Abstract] --> B["RecursiveCharacterTextSplitter\nchunk=1000, overlap=200"]
-        B --> C["FastEmbed\nBAAI/bge-small-en-v1.5\n(ONNX Runtime)"]
-        C --> D[(FAISS Index\nLocal Persistence)]
-        B --> E[(Raw Docs\ndocs.pkl\nfor BM25)]
-    end
-
-    subgraph Retrieval
-        F([Query]) --> G[BM25 Search\nsparse / keyword]
-        F --> H[FAISS MMR\ndense / semantic]
-        D --> H
-        E --> G
-        G & H --> I["RRF Fusion\nscore = Σ 1/(60+rank)"]
-        I --> J[Top-K Results]
-    end
-
-    style D fill:#d97706,color:#fff
-    style E fill:#92400e,color:#fff
-    style I fill:#1e40af,color:#fff
-```
-
----
-
 ## Project Structure
 
 ```
@@ -308,6 +192,8 @@ academic-rag-agent/
 ├── requirements.txt
 ├── environment.yml               # Conda environment
 ├── .env.example                  # Config template (no secrets)
+├── docs/
+│   └── images/                   # Architecture diagrams
 └── src/
     ├── agent/
     │   └── agent.py              # LangGraph ReAct agent
@@ -341,7 +227,7 @@ academic-rag-agent/
 ## Roadmap
 
 - [x] Hybrid BM25 + FAISS + RRF retrieval
-- [x] LangGraph `create_react_agent`
+- [x] LangGraph `create_react_agent` agent
 - [x] FastEmbed (ONNX, no PyTorch)
 - [x] Bulk arXiv indexing (100+ papers)
 - [x] Map-Reduce survey generation
@@ -349,7 +235,6 @@ academic-rag-agent/
 - [ ] Streamlit / Gradio web UI
 - [ ] Zotero library integration
 - [ ] Multi-agent collaboration (researcher + critic + writer)
-- [ ] PDF figure and equation extraction
 
 ---
 
