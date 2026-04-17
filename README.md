@@ -1,197 +1,212 @@
-# 🎓 Academic RAG Agent
+# Academic RAG Agent
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white" />
-  <img src="https://img.shields.io/badge/LangChain-0.3-green?logo=langchain" />
+  <img src="https://img.shields.io/badge/Python-3.10-blue?logo=python&logoColor=white" />
+  <img src="https://img.shields.io/badge/LangChain-0.3-green" />
   <img src="https://img.shields.io/badge/FAISS-Vector_DB-orange" />
-  <img src="https://img.shields.io/badge/LLM-DeepSeek%20%7C%20OpenAI-purple" />
+  <img src="https://img.shields.io/badge/LLM-Compatible-purple" />
+  <img src="https://img.shields.io/badge/Free_API-SiliconFlow%20%7C%20Groq-brightgreen" />
   <img src="https://img.shields.io/badge/License-MIT-lightgrey" />
 </p>
 
 <p align="center">
-  <b>面向学术科研文献的记忆增强 LLM Agent</b><br>
-  A Memory-Augmented LLM Agent for Academic Literature Analysis
+  <b>A Memory-Augmented LLM Agent for Academic Literature Analysis</b><br>
+  面向学术科研文献的记忆增强 LLM Agent
 </p>
 
 ---
 
-## ✨ 项目概述
+## What It Does
 
-本项目实现了一个专为**学术科研场景**设计的对话式 AI Agent，能够：
-
-- 📚 **读懂论文**：加载 PDF / TXT / Markdown 格式文献，自动分块向量化
-- 🔍 **语义检索**：基于 FAISS 向量数据库实现精准 RAG 检索
-- 🧠 **记住上下文**：滑动窗口记忆机制，支持多轮追问
-- 🌐 **实时搜索**：调用 arXiv API 搜索最新相关论文
-- 🛠️ **工具调用**：LLM 自主决策何时检索本地文献、何时搜索网络
-
-**应用场景**：文献综述辅助、论文精读提问、跨文献对比分析、研究思路探索
-
----
-
-## 🏗️ 系统架构
+Upload your research papers, ask questions in natural language, and get answers grounded in your documents — with conversation memory and real-time arXiv search.
 
 ```
-用户输入 (Query)
-     │
-     ▼
-┌─────────────────────────────────────┐
-│          Tool-Calling Agent          │
-│  (LangChain AgentExecutor + LLM)    │
-│                                     │
-│   ┌──────────┐   ┌───────────────┐  │
-│   │  Tool 1  │   │    Tool 2     │  │
-│   │ 本地文档  │   │  arXiv 搜索   │  │
-│   │  RAG检索  │   │  实时论文搜索  │  │
-│   └────┬─────┘   └──────┬────────┘  │
-│        │                │           │
-│        ▼                ▼           │
-│   ┌─────────┐      ┌─────────┐      │
-│   │  FAISS  │      │ arXiv   │      │
-│   │ 向量数据库│      │   API   │      │
-│   └─────────┘      └─────────┘      │
-└─────────────────────────────────────┘
-     │
-     ▼
-┌─────────────────┐
-│  Conversation   │  ← 滑动窗口记忆 (Window Memory)
-│     Memory      │     保留最近 N 轮对话上下文
-└─────────────────┘
-     │
-     ▼
-   LLM 回答生成 (DeepSeek / GPT-4o-mini)
+You > load papers/attention_is_all_you_need.pdf
+[47 chunks indexed]
+
+You > What is the role of Multi-Head Attention?
+
+Agent > Based on [attention_is_all_you_need.pdf], Multi-Head Attention allows
+        the model to jointly attend to information from different representation
+        subspaces at different positions...
+
+You > How does this compare to earlier attention mechanisms?
+
+Agent > (remembers context from previous turn)
+        Compared to additive attention used in Bahdanau et al...
+
+You > Search for recent papers on RAG
+
+Agent > Found 5 papers on arXiv:
+        [1] A Survey on Retrieval-Augmented Generation...
 ```
 
 ---
 
-## 🚀 快速开始
+## Architecture
 
-### 1. 克隆项目
+```mermaid
+flowchart TD
+    A([User Input]) --> B[ReAct Agent\nReasoning Engine]
+
+    B -->|needs local doc info| C[Tool: search_uploaded_papers]
+    B -->|needs latest papers| D[Tool: arxiv_search_tool]
+    B -->|general knowledge| E[Direct LLM Answer]
+
+    C --> F[(FAISS\nVector Store)]
+    F -->|top-k chunks via MMR| G[Context Assembly]
+    D -->|arXiv API results| G
+
+    G --> H[LLM\nAnswer Generation]
+
+    I[(Conversation\nMemory\nWindow K=10)] -->|chat history| B
+    H -->|store turn| I
+
+    H --> J([Final Answer])
+
+    style A fill:#4f46e5,color:#fff
+    style J fill:#059669,color:#fff
+    style F fill:#d97706,color:#fff
+    style I fill:#7c3aed,color:#fff
+    style B fill:#1e40af,color:#fff
+```
+
+---
+
+## Key Features
+
+| Feature | Details |
+|---------|---------|
+| **RAG** | PDF/TXT/MD loaded, chunked, embedded into FAISS vector store |
+| **Memory** | Sliding window keeps last N conversation turns |
+| **arXiv Search** | Real-time paper search as an agent tool |
+| **ReAct Agent** | Works with any instruction-following LLM, no Function Calling API needed |
+| **Local Embeddings** | `all-MiniLM-L6-v2` runs on CPU, fully offline after first download |
+| **Free-Friendly** | Compatible with SiliconFlow (free tier) and Groq (free tier) |
+
+---
+
+## Quick Start
+
+### 1. Clone & Install
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/academic-rag-agent.git
 cd academic-rag-agent
+
+# Create isolated conda environment
+conda env create -f environment.yml
+conda activate rag-agent
 ```
 
-### 2. 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3. 配置 API Key
+### 2. Configure API Key
 
 ```bash
 cp .env.example .env
-# 编辑 .env 文件，填入你的 API Key
+# Edit .env and fill in your API key
 ```
 
-> 💡 **推荐使用 DeepSeek API**（与 OpenAI 格式完全兼容，价格约为 GPT-4o 的 1/30）
-> 申请地址：https://platform.deepseek.com/
+**Recommended free options:**
 
-### 4. 运行
+| Provider | Sign Up | Free Model |
+|----------|---------|-----------|
+| [SiliconFlow](https://cloud.siliconflow.cn) | Phone/Email | `Qwen/Qwen2.5-7B-Instruct` |
+| [Groq](https://console.groq.com) | Google account | `llama-3.3-70b-versatile` |
+
+Example `.env` for SiliconFlow:
+```env
+OPENAI_API_KEY=sk-your-key-here
+OPENAI_BASE_URL=https://api.siliconflow.cn/v1
+OPENAI_MODEL=Qwen/Qwen2.5-7B-Instruct
+EMBEDDING_PROVIDER=local
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+```
+
+### 3. Run
 
 ```bash
+# Windows PowerShell
+conda activate rag-agent
+cd path/to/academic-rag-agent
 python main.py
 ```
 
 ---
 
-## 💬 使用示例
+## Usage
 
-```
-🎓 Academic RAG Agent  v1.0
+| Command | Description |
+|---------|-------------|
+| `load <path/to/paper.pdf>` | Index a PDF into the knowledge base |
+| `load_dir <path/to/folder>` | Index all documents in a folder |
+| `status` | Show knowledge base size and memory usage |
+| `clear_memory` | Reset conversation history |
+| `clear_db` | Wipe the vector store |
+| `help` | Show all commands |
+| `exit` | Quit |
 
-你 > load papers/attention_is_all_you_need.pdf
-📄 加载文件: attention_is_all_you_need.pdf (PDF 论文)
-✅ 完成: 共生成 47 个文本块
-🔄 正在向量化 47 个文本块...
-✅ 向量化完成: 数据库现共有 47 个向量块
+---
 
-你 > Transformer 中 Multi-Head Attention 的作用是什么？
+## RAG Pipeline Detail
 
-🤖 Agent (历史: 0 轮)
-根据 [attention_is_all_you_need.pdf]，Multi-Head Attention 的核心作用是...
-允许模型在不同的表示子空间中并行关注来自不同位置的信息。具体而言：
-1. **多头设计**：将 Q/K/V 投影到 h 个不同的低维空间分别计算注意力...
-2. **信息整合**：将 h 个注意力结果拼接后再次投影...
+```mermaid
+flowchart LR
+    subgraph Indexing
+        A[PDF / TXT / MD] --> B[RecursiveCharacterTextSplitter\nchunk=1000, overlap=200]
+        B --> C[HuggingFace Embeddings\nall-MiniLM-L6-v2]
+        C --> D[(FAISS Index\nLocal Persistence)]
+    end
 
-你 > 搜索一下最新的 RAG 综述论文
+    subgraph Retrieval
+        E([Query]) --> F[MMR Search\nk=4, fetch_k=12]
+        D --> F
+        F --> G[Top-K Chunks]
+    end
 
-🤖 Agent (历史: 1 轮)
-找到 5 篇相关论文：
-[1] A Survey on Retrieval-Augmented Generation for Large Language Models...
+    style D fill:#d97706,color:#fff
 ```
 
 ---
 
-## 📂 项目结构
+## Project Structure
 
 ```
 academic-rag-agent/
-├── main.py                    # 交互式 CLI 入口
+├── main.py                    # CLI entry point
 ├── requirements.txt
-├── .env.example               # 配置模板
-├── src/
-│   ├── rag/
-│   │   ├── document_loader.py # 文档加载 & 分块
-│   │   └── vector_store.py    # FAISS 向量数据库管理
-│   ├── agent/
-│   │   └── agent.py           # 核心 Agent（记忆 + 工具调用）
-│   └── tools/
-│       └── arxiv_tool.py      # arXiv 搜索工具
-└── vector_store/              # 本地向量库（自动生成）
+├── environment.yml            # Conda environment
+├── .env.example               # Config template
+├── STARTUP.md                 # Personal startup guide
+└── src/
+    ├── rag/
+    │   ├── document_loader.py # Load & chunk documents
+    │   └── vector_store.py    # FAISS management
+    ├── agent/
+    │   └── agent.py           # ReAct agent core
+    └── tools/
+        └── arxiv_tool.py      # arXiv search tool
 ```
 
 ---
 
-## ⚙️ 核心技术细节
-
-### RAG Pipeline
-
-| 步骤 | 技术选型 | 说明 |
-|------|---------|------|
-| 文档分块 | `RecursiveCharacterTextSplitter` | chunk_size=1000, overlap=200 |
-| 向量化 | `text-embedding-3-small` | OpenAI 嵌入，尺寸 1536 |
-| 存储 | FAISS (IVFFlat) | 本地持久化，无需服务器 |
-| 检索 | MMR (Maximal Marginal Relevance) | 相关性 + 多样性平衡 |
-
-### Memory 设计
-
-使用 `ConversationBufferWindowMemory`（滑动窗口记忆）：
-- 保留最近 **K 轮**对话（默认 K=10）
-- 超出窗口的历史自动丢弃，控制 token 消耗
-- 支持 `clear_memory` 命令手动重置
-
-### Agent 决策逻辑
-
-LLM 根据问题语义**自主选择工具**：
-- 问题涉及已上传文献 → 触发 `search_uploaded_papers`（本地 RAG）
-- 问题需要最新论文 → 触发 `arxiv_search_tool`（网络搜索）
-- 一般知识问题 → 直接由 LLM 回答
-
----
-
-## 🗺️ 未来计划
-
-- [ ] 支持多模态（图表、公式识别）
-- [ ] 添加 Web UI（基于 Gradio 或 Streamlit）
-- [ ] 接入 Zotero 文献管理库
-- [ ] 支持生成文献综述草稿
-- [ ] 多 Agent 协作（写作 Agent + 检索 Agent）
-
----
-
-## 📖 相关工作
-
-本项目的设计灵感来源于以下工作：
+## Tech References
 
 - **RAG**: Lewis et al., *Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks* (NeurIPS 2020)
 - **ReAct**: Yao et al., *ReAct: Synergizing Reasoning and Acting in Language Models* (ICLR 2023)
-- **MemGPT**: Packer et al., *MemGPT: Towards LLMs as Operating Systems* (2023)
+- **MMR**: Carbonell & Goldstein, *The Use of MMR, Diversity-Based Reranking for Reordering Documents* (SIGIR 1998)
 
 ---
 
-## 📄 License
+## Roadmap
 
-MIT License © 2025 Zhou Yang (NTU)
+- [ ] Gradio / Streamlit web UI
+- [ ] Multi-modal support (figures, equations)
+- [ ] Zotero library integration
+- [ ] Literature review draft generation
+- [ ] Multi-agent collaboration
+
+---
+
+## License
+
+MIT License

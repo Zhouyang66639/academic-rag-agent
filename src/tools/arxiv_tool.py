@@ -55,11 +55,11 @@ def format_arxiv_results(results: List[Dict]) -> str:
             authors_str += " et al."
         lines.append(
             f"**[{i}] {paper['title']}**\n"
-            f"   👤 作者: {authors_str}\n"
-            f"   📅 发布: {paper['published']}\n"
-            f"   🏷️  领域: {', '.join(paper['categories'])}\n"
-            f"   📝 摘要: {paper['abstract']}\n"
-            f"   🔗 链接: {paper['url']}\n"
+            f"    作者: {authors_str}\n"
+            f"    发布: {paper['published']}\n"
+            f"   ️  领域: {', '.join(paper['categories'])}\n"
+            f"    摘要: {paper['abstract']}\n"
+            f"    链接: {paper['url']}\n"
         )
     return "\n".join(lines)
 
@@ -78,7 +78,7 @@ def arxiv_search_tool(query: str) -> str:
     Returns:
         格式化的论文搜索结果
     """
-    console.print(f"[dim]🔍 搜索 arXiv: {query}[/dim]")
+    console.print(f"[dim] 搜索 arXiv: {query}[/dim]")
     try:
         results = search_arxiv(query, max_results=5)
         return format_arxiv_results(results)

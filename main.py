@@ -1,5 +1,5 @@
 """
-Main Entry Point — 交互式命令行界面
+Main Entry Point - 交互式命令行界面
 运行方式: python main.py
 """
 
@@ -25,46 +25,43 @@ console = Console()
 
 BANNER = """
 [bold cyan]
-  ╔═══════════════════════════════════════════════╗
-  ║       🎓 Academic RAG Agent  v1.0             ║
-  ║   面向科研文献的记忆增强 LLM Agent             ║
-  ║                                               ║
-  ║   RAG + Memory + arXiv Search + LLM           ║
-  ╚═══════════════════════════════════════════════╝
+  +-----------------------------------------------+
+  |       Academic RAG Agent  v1.0                |
+  |   面向科研文献的记忆增强 LLM Agent            |
+  |                                               |
+  |   RAG + Memory + arXiv Search + LLM           |
+  +-----------------------------------------------+
 [/bold cyan]
 """
 
 HELP_TEXT = """
 [bold]可用命令:[/bold]
-  [cyan]load <文件路径>[/cyan]    — 加载 PDF/TXT/MD 文档到知识库
-  [cyan]load_dir <目录路径>[/cyan] — 加载整个目录的文档
-  [cyan]status[/cyan]            — 查看当前知识库状态
-  [cyan]clear_memory[/cyan]      — 清空对话历史
-  [cyan]clear_db[/cyan]          — 清空知识库（慎用！）
-  [cyan]help[/cyan]             — 显示此帮助
-  [cyan]exit / quit[/cyan]       — 退出程序
+  [cyan]load <文件路径>[/cyan]     -- 加载 PDF/TXT/MD 文档到知识库
+  [cyan]load_dir <目录路径>[/cyan]  -- 加载整个目录的文档
+  [cyan]status[/cyan]             -- 查看当前知识库状态
+  [cyan]clear_memory[/cyan]       -- 清空对话历史
+  [cyan]clear_db[/cyan]           -- 清空知识库（慎用！）
+  [cyan]help[/cyan]               -- 显示此帮助
+  [cyan]exit / quit[/cyan]        -- 退出程序
 
 [bold]示例问题:[/bold]
-  • 这篇论文的核心贡献是什么？
-  • RAG 和 Fine-tuning 有什么区别？
-  • 搜索一下 memory augmented LLM agent 相关论文
-  • 这个方法与上一篇论文相比有什么改进？
+  这篇论文的核心贡献是什么？
+  RAG 和 Fine-tuning 有什么区别？
+  搜索一下 memory augmented LLM agent 相关论文
 """
 
 
 def check_env():
     """检查必要的环境变量是否已配置"""
     api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key or api_key.startswith("sk-xxx"):
+    if not api_key or api_key.startswith("sk-xxx") or api_key.startswith("AIzaxxx"):
         console.print(
             Panel(
-                "[red]❌ 未配置 API Key！\n\n"
+                "[red]未配置 API Key！\n\n"
                 "请复制 .env.example 为 .env 并填入你的 API Key:\n"
-                "  cp .env.example .env\n"
-                "  # 然后编辑 .env 文件\n\n"
-                "推荐使用 [bold]DeepSeek API[/bold]（便宜，兼容 OpenAI 格式）:\n"
-                "  👉 https://platform.deepseek.com/",
-                title="⚠️  配置错误",
+                "  copy .env.example .env\n"
+                "  # 然后编辑 .env 文件",
+                title="配置错误",
                 border_style="red",
             )
         )
@@ -80,12 +77,12 @@ def print_status(vector_store: VectorStoreManager, agent: AcademicRAGAgent):
     table.add_row("对话历史轮数", f"[bold]{agent.history_turns}[/bold] 轮")
     table.add_row("记忆窗口大小", f"{agent.memory_window} 轮")
     table.add_row("向量库路径", str(vector_store.store_path))
-    console.print(Panel(table, title="📊 系统状态", border_style="blue"))
+    console.print(Panel(table, title="系统状态", border_style="blue"))
 
 
 def run_interactive(agent: AcademicRAGAgent, loader: AcademicDocumentLoader, vector_store: VectorStoreManager):
     """运行交互式对话循环"""
-    console.print(Panel(HELP_TEXT, title="💡 使用指南", border_style="dim"))
+    console.print(Panel(HELP_TEXT, title="使用指南", border_style="dim"))
 
     while True:
         try:
@@ -96,11 +93,11 @@ def run_interactive(agent: AcademicRAGAgent, loader: AcademicDocumentLoader, vec
 
             # 处理命令
             if user_input.lower() in ("exit", "quit", "q"):
-                console.print("[dim]👋 再见！[/dim]")
+                console.print("[dim]再见！[/dim]")
                 break
 
             elif user_input.lower() == "help":
-                console.print(Panel(HELP_TEXT, title="💡 帮助", border_style="dim"))
+                console.print(Panel(HELP_TEXT, title="帮助", border_style="dim"))
 
             elif user_input.lower() == "status":
                 print_status(vector_store, agent)
@@ -110,7 +107,7 @@ def run_interactive(agent: AcademicRAGAgent, loader: AcademicDocumentLoader, vec
 
             elif user_input.lower() == "clear_db":
                 confirm = Prompt.ask(
-                    "[red]⚠️  确认清空知识库？这将删除所有已索引文档（输入 YES 确认）[/red]"
+                    "[red]确认清空知识库？这将删除所有已索引文档（输入 YES 确认）[/red]"
                 )
                 if confirm == "YES":
                     vector_store.clear()
@@ -132,12 +129,12 @@ def run_interactive(agent: AcademicRAGAgent, loader: AcademicDocumentLoader, vec
 
             # 正常对话
             else:
-                console.print("\n[bold blue]🤖 Agent[/bold blue] [dim]正在思考...[/dim]")
+                console.print("\n[bold blue]Agent[/bold blue] [dim]正在思考...[/dim]")
                 response = agent.chat(user_input)
                 console.print(
                     Panel(
                         response,
-                        title=f"[bold blue]🤖 Agent[/bold blue] [dim](历史: {agent.history_turns} 轮)[/dim]",
+                        title=f"[bold blue]Agent[/bold blue] [dim](历史: {agent.history_turns} 轮)[/dim]",
                         border_style="blue",
                         padding=(1, 2),
                     )
@@ -155,8 +152,8 @@ def main():
 
     # 初始化组件
     store_path = os.getenv("VECTOR_STORE_PATH", "./vector_store")
-    embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-    model_name = os.getenv("OPENAI_MODEL", "deepseek-chat")
+    embedding_model = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+    model_name = os.getenv("OPENAI_MODEL", "Qwen/Qwen2.5-7B-Instruct")
     memory_window = int(os.getenv("MEMORY_WINDOW_SIZE", "10"))
     top_k = int(os.getenv("RETRIEVAL_TOP_K", "4"))
     max_tokens = int(os.getenv("MAX_TOKENS", "2048"))

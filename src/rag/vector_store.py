@@ -1,6 +1,9 @@
 """
 Vector Store Module
 基于 FAISS 的本地向量数据库，支持持久化存储和增量更新
+支持两种 Embedding 方式：
+  - local (免费): HuggingFace sentence-transformers，在本机运行
+  - openai (付费): OpenAI text-embedding 系列
 """
 
 import os
@@ -9,9 +12,7 @@ from typing import List, Optional
 
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
-from langchain_openai import OpenAIEmbeddings
 from rich.console import Console
-from rich.progress import track
 
 console = Console()
 
@@ -26,11 +27,31 @@ class VectorStoreManager:
         - 相似度检索 + MMR 多样性检索
     """
 
-    def __init__(self, store_path: str, embedding_model: str = "text-embedding-3-small"):
+    def __init__(self, store_path: str, embedding_model: str = "all-MiniLM-L6-v2"):
         self.store_path = Path(store_path)
-        self.embeddings = OpenAIEmbeddings(model=embedding_model)
+        self.embeddings = self._init_embeddings(embedding_model)
         self.vector_store: Optional[FAISS] = None
         self._load_existing()
+
+    def _init_embeddings(self, model_name: str):
+        """根据配置选择 Embedding 方式（免费本地 or OpenAI）"""
+        provider = os.getenv("EMBEDDING_PROVIDER", "local").lower()
+
+        if provider == "openai":
+            from langchain_openai import OpenAIEmbeddings
+            console.print(f"[dim]Embedding: OpenAI ({model_name})[/dim]")
+            return OpenAIEmbeddings(model=model_name)
+        else:
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+            console.print(
+                f"[dim]Embedding: 本地免费模型 ({model_name}) "
+                f"首次使用会自动下载（约 90MB）...[/dim]"
+            )
+            return HuggingFaceEmbeddings(
+                model_name=model_name,
+                model_kwargs={"device": "cpu"},
+                encode_kwargs={"normalize_embeddings": True},
+            )
 
     def _load_existing(self):
         """如果本地有保存的向量库，自动加载"""
@@ -43,11 +64,11 @@ class VectorStoreManager:
                 )
                 doc_count = self.vector_store.index.ntotal
                 console.print(
-                    f"[green]✅ 已加载本地向量库:[/green] {doc_count} 个向量块 "
+                    f"[green]已加载本地向量库:[/green] {doc_count} 个向量块 "
                     f"[dim]({self.store_path})[/dim]"
                 )
             except Exception as e:
-                console.print(f"[yellow]⚠️  加载向量库失败，将新建: {e}[/yellow]")
+                console.print(f"[yellow]加载向量库失败，将新建: {e}[/yellow]")
                 self.vector_store = None
 
     def add_documents(self, documents: List[Document]) -> int:
@@ -58,10 +79,10 @@ class VectorStoreManager:
             int: 新增的向量数量
         """
         if not documents:
-            console.print("[yellow]⚠️  没有文档需要添加[/yellow]")
+            console.print("[yellow]️  没有文档需要添加[/yellow]")
             return 0
 
-        console.print(f"[cyan]🔄 正在向量化 {len(documents)} 个文本块...[/cyan]")
+        console.print(f"[cyan]向量化 {len(documents)} 个文本块...[/cyan]")
 
         if self.vector_store is None:
             self.vector_store = FAISS.from_documents(documents, self.embeddings)
@@ -70,7 +91,7 @@ class VectorStoreManager:
 
         self._save()
         console.print(
-            f"[green]✅ 向量化完成:[/green] "
+            f"[green]向量化完成:[/green] "
             f"数据库现共有 [bold]{self.vector_store.index.ntotal}[/bold] 个向量块"
         )
         return len(documents)
@@ -119,7 +140,7 @@ class VectorStoreManager:
         if self.store_path.exists():
             import shutil
             shutil.rmtree(self.store_path)
-        console.print("[yellow]🗑️  向量库已清空[/yellow]")
+        console.print("[yellow]向量库已清空[/yellow]")
 
     @property
     def doc_count(self) -> int:

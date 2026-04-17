@@ -58,7 +58,7 @@ class AcademicDocumentLoader:
             )
 
         console.print(
-            f"[cyan]📄 加载文件:[/cyan] {path.name} "
+            f"[cyan] 加载文件:[/cyan] {path.name} "
             f"[dim]({self.SUPPORTED_EXTENSIONS[ext]})[/dim]"
         )
 
@@ -80,7 +80,7 @@ class AcademicDocumentLoader:
         # 分块
         chunks = self.text_splitter.split_documents(raw_docs)
         console.print(
-            f"[green]✅ 完成:[/green] 共生成 [bold]{len(chunks)}[/bold] 个文本块"
+            f"[green] 完成:[/green] 共生成 [bold]{len(chunks)}[/bold] 个文本块"
         )
         return chunks
 
@@ -97,20 +97,20 @@ class AcademicDocumentLoader:
         ]
 
         if not files:
-            console.print(f"[yellow]⚠️  目录中未找到支持的文件: {dir_path}[/yellow]")
+            console.print(f"[yellow]️  目录中未找到支持的文件: {dir_path}[/yellow]")
             return []
 
-        console.print(f"[blue]📂 扫描目录:[/blue] {dir_path} — 找到 {len(files)} 个文件")
+        console.print(f"[blue] 扫描目录:[/blue] {dir_path} — 找到 {len(files)} 个文件")
 
         for f in files:
             try:
                 docs = self.load_file(str(f))
                 all_docs.extend(docs)
             except Exception as e:
-                console.print(f"[red]❌ 加载失败:[/red] {f.name} — {e}")
+                console.print(f"[red] 加载失败:[/red] {f.name} — {e}")
 
         console.print(
-            f"\n[bold green]📚 目录加载完成:[/bold green] "
+            f"\n[bold green] 目录加载完成:[/bold green] "
             f"共 {len(files)} 个文件，{len(all_docs)} 个文本块\n"
         )
         return all_docs

@@ -6,3 +6,4 @@ __pycache__/
 *.docx
 papers/
 .DS_Store
+STARTUP.md
