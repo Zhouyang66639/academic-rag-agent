@@ -1,12 +1,14 @@
 """
-Vector Store Module
-基于 FAISS 的本地向量数据库，支持持久化存储和增量更新
-支持两种 Embedding 方式：
-  - local (免费): HuggingFace sentence-transformers，在本机运行
-  - openai (付费): OpenAI text-embedding 系列
+Vector Store Manager — FAISS + Document Store for Hybrid Retrieval
+
+Embedding backend: FastEmbed (ONNX Runtime, no PyTorch dependency)
+Persistence:
+    vector_store/faiss/   -- FAISS index (binary)
+    vector_store/docs.pkl -- raw Document list (for BM25 re-indexing)
 """
 
 import os
+import pickle
 from pathlib import Path
 from typing import List, Optional
 
@@ -19,33 +21,60 @@ console = Console()
 
 class VectorStoreManager:
     """
-    FAISS 向量数据库管理器
+    Manages FAISS vector database + raw document persistence.
 
-    Features:
-        - 本地持久化（无需运行外部服务）
-        - 增量添加文档
-        - 相似度检索 + MMR 多样性检索
+    Design decisions:
+    - Uses FastEmbed (ONNX-based) instead of sentence-transformers to
+      eliminate PyTorch as a dependency, reducing install size by ~1 GB.
+    - Persists raw Document objects to disk so BM25 can be rebuilt on
+      each session without re-processing source files.
+    - Exposes get_hybrid_retriever() which returns a BM25+FAISS+RRF
+      retriever when documents exist, else falls back to dense-only.
     """
 
-    def __init__(self, store_path: str, embedding_model: str = "all-MiniLM-L6-v2"):
+    FAISS_DIR = "faiss"
+    DOCS_FILE = "docs.pkl"
+
+    def __init__(
+        self,
+        store_path: str,
+        embedding_model: str = "BAAI/bge-small-en-v1.5",
+    ):
         self.store_path = Path(store_path)
+        self.store_path.mkdir(parents=True, exist_ok=True)
+
         self.embeddings = self._init_embeddings(embedding_model)
         self.vector_store: Optional[FAISS] = None
-        self._load_existing()
+        self._documents: List[Document] = []
+
+        self._load()
+
+    # ------------------------------------------------------------------
+    # Embedding initialisation
+    # ------------------------------------------------------------------
 
     def _init_embeddings(self, model_name: str):
-        """根据配置选择 Embedding 方式（免费本地 or OpenAI）"""
         provider = os.getenv("EMBEDDING_PROVIDER", "local").lower()
 
         if provider == "openai":
             from langchain_openai import OpenAIEmbeddings
             console.print(f"[dim]Embedding: OpenAI ({model_name})[/dim]")
             return OpenAIEmbeddings(model=model_name)
-        else:
+
+        # Default: FastEmbed (ONNX, no PyTorch)
+        try:
+            from langchain_community.embeddings import FastEmbedEmbeddings
+            console.print(
+                f"[dim]Embedding: FastEmbed/{model_name} "
+                f"(ONNX Runtime, no PyTorch)[/dim]"
+            )
+            return FastEmbedEmbeddings(model_name=model_name)
+        except Exception:
+            # Graceful fallback to HuggingFace if fastembed unavailable
             from langchain_community.embeddings import HuggingFaceEmbeddings
             console.print(
-                f"[dim]Embedding: 本地免费模型 ({model_name}) "
-                f"首次使用会自动下载（约 90MB）...[/dim]"
+                f"[yellow]FastEmbed unavailable, falling back to "
+                f"HuggingFace ({model_name})[/yellow]"
             )
             return HuggingFaceEmbeddings(
                 model_name=model_name,
@@ -53,37 +82,59 @@ class VectorStoreManager:
                 encode_kwargs={"normalize_embeddings": True},
             )
 
-    def _load_existing(self):
-        """如果本地有保存的向量库，自动加载"""
-        if self.store_path.exists() and any(self.store_path.iterdir()):
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def _load(self):
+        """Load FAISS index and raw documents from disk."""
+        docs_path = self.store_path / self.DOCS_FILE
+        if docs_path.exists():
+            with open(docs_path, "rb") as f:
+                self._documents = pickle.load(f)
+
+        faiss_path = self.store_path / self.FAISS_DIR
+        if faiss_path.exists() and any(faiss_path.iterdir()):
             try:
                 self.vector_store = FAISS.load_local(
-                    str(self.store_path),
+                    str(faiss_path),
                     self.embeddings,
                     allow_dangerous_deserialization=True,
                 )
-                doc_count = self.vector_store.index.ntotal
                 console.print(
-                    f"[green]已加载本地向量库:[/green] {doc_count} 个向量块 "
-                    f"[dim]({self.store_path})[/dim]"
+                    f"[green]Vector store loaded:[/green] "
+                    f"{self.vector_store.index.ntotal} vectors | "
+                    f"{len(self._documents)} raw docs"
                 )
             except Exception as e:
-                console.print(f"[yellow]加载向量库失败，将新建: {e}[/yellow]")
+                console.print(f"[yellow]Failed to load store, rebuilding: {e}[/yellow]")
                 self.vector_store = None
 
-    def add_documents(self, documents: List[Document]) -> int:
-        """
-        向向量库中添加文档
+    def _save(self):
+        """Persist FAISS index and raw documents."""
+        faiss_path = self.store_path / self.FAISS_DIR
+        faiss_path.mkdir(exist_ok=True)
+        self.vector_store.save_local(str(faiss_path))
 
-        Returns:
-            int: 新增的向量数量
-        """
+        docs_path = self.store_path / self.DOCS_FILE
+        with open(docs_path, "wb") as f:
+            pickle.dump(self._documents, f)
+
+    # ------------------------------------------------------------------
+    # Document management
+    # ------------------------------------------------------------------
+
+    def add_documents(self, documents: List[Document]) -> int:
         if not documents:
-            console.print("[yellow]️  没有文档需要添加[/yellow]")
+            console.print("[yellow]No documents to add[/yellow]")
             return 0
 
-        console.print(f"[cyan]向量化 {len(documents)} 个文本块...[/cyan]")
+        console.print(f"[cyan]Vectorizing {len(documents)} chunks...[/cyan]")
 
+        # Keep raw docs for BM25
+        self._documents.extend(documents)
+
+        # Build / extend FAISS index
         if self.vector_store is None:
             self.vector_store = FAISS.from_documents(documents, self.embeddings)
         else:
@@ -91,60 +142,68 @@ class VectorStoreManager:
 
         self._save()
         console.print(
-            f"[green]向量化完成:[/green] "
-            f"数据库现共有 [bold]{self.vector_store.index.ntotal}[/bold] 个向量块"
+            f"[green]Done.[/green] "
+            f"Store: {self.vector_store.index.ntotal} vectors "
+            f"({len(self._documents)} raw docs)"
         )
         return len(documents)
 
-    def similarity_search(
-        self, query: str, k: int = 4, use_mmr: bool = True
-    ) -> List[Document]:
-        """
-        语义搜索
+    def clear(self):
+        import shutil
+        if self.store_path.exists():
+            shutil.rmtree(self.store_path)
+        self.store_path.mkdir(parents=True)
+        self.vector_store = None
+        self._documents = []
+        console.print("[yellow]Vector store cleared[/yellow]")
 
-        Args:
-            query: 查询问题
-            k: 返回结果数
-            use_mmr: 使用 MMR 算法保证结果多样性（避免重复内容）
-        """
+    # ------------------------------------------------------------------
+    # Retriever factories
+    # ------------------------------------------------------------------
+
+    def get_dense_retriever(self, k: int = 4):
+        """Dense-only FAISS MMR retriever."""
         if self.vector_store is None:
-            raise RuntimeError("向量库为空，请先加载文档！")
-
-        if use_mmr:
-            # MMR: 在相关性和多样性之间取平衡
-            results = self.vector_store.max_marginal_relevance_search(
-                query, k=k, fetch_k=k * 3
-            )
-        else:
-            results = self.vector_store.similarity_search(query, k=k)
-
-        return results
-
-    def get_retriever(self, k: int = 4):
-        """返回 LangChain 兼容的检索器对象，方便接入 Chain"""
-        if self.vector_store is None:
-            raise RuntimeError("向量库为空，请先加载文档！")
+            return None
         return self.vector_store.as_retriever(
             search_type="mmr",
             search_kwargs={"k": k, "fetch_k": k * 3},
         )
 
-    def _save(self):
-        """持久化保存到本地"""
-        self.store_path.mkdir(parents=True, exist_ok=True)
-        self.vector_store.save_local(str(self.store_path))
+    def get_hybrid_retriever(self, k: int = 4):
+        """
+        Hybrid BM25 + Dense retriever with RRF fusion.
 
-    def clear(self):
-        """清空向量库"""
-        self.vector_store = None
-        if self.store_path.exists():
-            import shutil
-            shutil.rmtree(self.store_path)
-        console.print("[yellow]向量库已清空[/yellow]")
+        Falls back to dense-only if no documents are indexed.
+        """
+        if not self._documents:
+            return None
+
+        from src.rag.hybrid_retriever import HybridRetriever
+        from langchain_community.retrievers import BM25Retriever
+
+        bm25 = BM25Retriever.from_documents(self._documents, k=k)
+        dense = self.get_dense_retriever(k=k)
+
+        if dense is None:
+            return bm25
+
+        return HybridRetriever(
+            bm25_retriever=bm25,
+            dense_retriever=dense,
+            k=k,
+        )
+
+    def get_retriever(self, k: int = 4):
+        """Returns hybrid retriever if available, else dense-only."""
+        return self.get_hybrid_retriever(k=k) or self.get_dense_retriever(k=k)
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
 
     @property
     def doc_count(self) -> int:
-        """返回当前存储的向量数量"""
         if self.vector_store is None:
             return 0
         return self.vector_store.index.ntotal

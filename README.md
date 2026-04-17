@@ -2,16 +2,17 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10-blue?logo=python&logoColor=white" />
-  <img src="https://img.shields.io/badge/LangChain-0.3-green" />
+  <img src="https://img.shields.io/badge/LangGraph-1.1-green" />
   <img src="https://img.shields.io/badge/FAISS-Vector_DB-orange" />
-  <img src="https://img.shields.io/badge/LLM-Compatible-purple" />
-  <img src="https://img.shields.io/badge/Free_API-SiliconFlow%20%7C%20Groq-brightgreen" />
+  <img src="https://img.shields.io/badge/Hybrid_Search-BM25%2BFAISS%2BRRF-blueviolet" />
+  <img src="https://img.shields.io/badge/Embedding-FastEmbed_ONNX-brightgreen" />
+  <img src="https://img.shields.io/badge/Free_API-SiliconFlow%20%7C%20Groq-success" />
   <img src="https://img.shields.io/badge/License-MIT-lightgrey" />
 </p>
 
 <p align="center">
   <b>A Memory-Augmented LLM Agent for Academic Literature Analysis</b><br>
-  面向学术科研文献的记忆增强 LLM Agent
+  面向学术科研文献的记忆增强 LLM Agent · v2.0
 </p>
 
 ---
@@ -22,7 +23,7 @@ Upload your research papers, ask questions in natural language, and get answers 
 
 ```
 You > load papers/attention_is_all_you_need.pdf
-[47 chunks indexed]
+[47 chunks indexed — Hybrid BM25+FAISS retriever activated]
 
 You > What is the role of Multi-Head Attention?
 
@@ -32,13 +33,14 @@ Agent > Based on [attention_is_all_you_need.pdf], Multi-Head Attention allows
 
 You > How does this compare to earlier attention mechanisms?
 
-Agent > (remembers context from previous turn)
+Agent > (remembers context from previous turn via LangGraph MemorySaver)
         Compared to additive attention used in Bahdanau et al...
 
 You > Search for recent papers on RAG
 
 Agent > Found 5 papers on arXiv:
-        [1] A Survey on Retrieval-Augmented Generation...
+        [1] Engineering the RAG Stack — arXiv:2601.05264
+        ...
 ```
 
 ---
@@ -47,27 +49,38 @@ Agent > Found 5 papers on arXiv:
 
 ```mermaid
 flowchart TD
-    A([User Input]) --> B[ReAct Agent\nReasoning Engine]
+    A([User Input]) --> B
 
-    B -->|needs local doc info| C[Tool: search_uploaded_papers]
-    B -->|needs latest papers| D[Tool: arxiv_search_tool]
-    B -->|general knowledge| E[Direct LLM Answer]
+    subgraph LangGraph_StateGraph ["LangGraph StateGraph (ReAct Loop)"]
+        B[Agent Node\nLLM Reasoning] -->|tool call| C{Tool Router}
+        C -->|local docs| D[search_uploaded_papers]
+        C -->|latest papers| E[arxiv_search_tool]
+        C -->|general Q&A| F[Direct Response]
+        D --> G[Observation]
+        E --> G
+        G --> B
+    end
 
-    C --> F[(FAISS\nVector Store)]
-    F -->|top-k chunks via MMR| G[Context Assembly]
-    D -->|arXiv API results| G
+    subgraph Hybrid_Retrieval ["Hybrid Retrieval Pipeline"]
+        D --> H[BM25\nSparse Retrieval]
+        D --> I[FAISS MMR\nDense Retrieval]
+        H --> J[RRF Fusion\n1÷60+rank]
+        I --> J
+        J --> K[(Top-K Docs)]
+    end
 
-    G --> H[LLM\nAnswer Generation]
+    subgraph Memory ["MemorySaver Checkpointing"]
+        L[(Thread State\nMessage History)] -->|thread_id| B
+        B -->|checkpoint| L
+    end
 
-    I[(Conversation\nMemory\nWindow K=10)] -->|chat history| B
-    H -->|store turn| I
-
-    H --> J([Final Answer])
+    F --> M([Final Answer])
+    K --> M
 
     style A fill:#4f46e5,color:#fff
-    style J fill:#059669,color:#fff
-    style F fill:#d97706,color:#fff
-    style I fill:#7c3aed,color:#fff
+    style M fill:#059669,color:#fff
+    style J fill:#d97706,color:#fff
+    style L fill:#7c3aed,color:#fff
     style B fill:#1e40af,color:#fff
 ```
 
@@ -75,14 +88,14 @@ flowchart TD
 
 ## Key Features
 
-| Feature | Details |
-|---------|---------|
-| **RAG** | PDF/TXT/MD loaded, chunked, embedded into FAISS vector store |
-| **Memory** | Sliding window keeps last N conversation turns |
-| **arXiv Search** | Real-time paper search as an agent tool |
-| **ReAct Agent** | Works with any instruction-following LLM, no Function Calling API needed |
-| **Local Embeddings** | `all-MiniLM-L6-v2` runs on CPU, fully offline after first download |
-| **Free-Friendly** | Compatible with SiliconFlow (free tier) and Groq (free tier) |
+| Feature | Implementation | Notes |
+|---------|---------------|-------|
+| **RAG** | PDF/TXT/MD → chunked → FAISS index | RecursiveCharacterTextSplitter |
+| **Hybrid Search** | BM25 (sparse) + FAISS MMR (dense) + RRF | Cormack et al., SIGIR 2009 |
+| **Memory** | LangGraph MemorySaver + thread\_id | Per-session checkpointing |
+| **Agent** | LangGraph `create_react_agent` (v2) | Replaces deprecated AgentExecutor |
+| **Embedding** | FastEmbed `BAAI/bge-small-en-v1.5` | ONNX Runtime, **no PyTorch** |
+| **Free-Friendly** | SiliconFlow (Qwen) / Groq (Llama) | Zero API cost to get started |
 
 ---
 
