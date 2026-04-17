@@ -11,7 +11,6 @@ from langchain_core.documents import Document
 from langchain_community.document_loaders import (
     PyPDFLoader,
     TextLoader,
-    UnstructuredMarkdownLoader,
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from rich.console import Console
@@ -35,20 +34,27 @@ class AcademicDocumentLoader:
     def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
         """
         Args:
-            chunk_size: 每个文本块的最大字符数
-            chunk_overlap: 相邻块之间的重叠字符数（保证上下文连续性）
+            chunk_size: max characters per chunk
+            chunk_overlap: overlap between adjacent chunks (preserves context)
         """
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
-            separators=["\n\n", "\n", "。", ".", " ", ""],
+            separators=["\n\n", "\n", ".", " ", ""],
         )
+        self._loaded_files: set[str] = set()  # dedup tracker
 
     def load_file(self, file_path: str) -> List[Document]:
         """Load a single file and split into chunks. Returns [] on error."""
         path = Path(file_path)
         if not path.exists():
             console.print(f"[red]File not found: {file_path}[/red]")
+            return []
+
+        # Deduplication: skip if already indexed
+        resolved = str(path.resolve())
+        if resolved in self._loaded_files:
+            console.print(f"[yellow]Already indexed, skipping: {path.name}[/yellow]")
             return []
 
         ext = path.suffix.lower()
@@ -60,29 +66,28 @@ class AcademicDocumentLoader:
             return []
 
         console.print(
-            f"[cyan] 加载文件:[/cyan] {path.name} "
+            f"[cyan]Loading:[/cyan] {path.name} "
             f"[dim]({self.SUPPORTED_EXTENSIONS[ext]})[/dim]"
         )
 
-        # 根据扩展名选择加载器
+        # TextLoader handles PDF, TXT, and MD (markdown is plain text)
         if ext == ".pdf":
             loader = PyPDFLoader(str(path))
-        elif ext == ".txt":
+        else:
+            # Both .txt and .md can be loaded as plain text
             loader = TextLoader(str(path), encoding="utf-8")
-        elif ext == ".md":
-            loader = UnstructuredMarkdownLoader(str(path))
 
         raw_docs = loader.load()
 
-        # 添加元数据
+        # Attach metadata
         for doc in raw_docs:
             doc.metadata["source_file"] = path.name
             doc.metadata["file_type"] = ext
 
-        # 分块
         chunks = self.text_splitter.split_documents(raw_docs)
+        self._loaded_files.add(resolved)  # mark as indexed
         console.print(
-            f"[green] 完成:[/green] 共生成 [bold]{len(chunks)}[/bold] 个文本块"
+            f"[green]Done:[/green] {len(chunks)} chunks from {path.name}"
         )
         return chunks
 
