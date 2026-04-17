@@ -20,34 +20,47 @@ load_dotenv()
 from src.rag.document_loader import AcademicDocumentLoader
 from src.rag.vector_store import VectorStoreManager
 from src.agent.agent import AcademicRAGAgent
+from src.tools.bulk_arxiv import bulk_fetch_arxiv
+from src.tools.survey_writer import generate_survey
 
 console = Console()
 
 BANNER = """
 [bold cyan]
-  +-----------------------------------------------+
-  |       Academic RAG Agent  v1.0                |
-  |   面向科研文献的记忆增强 LLM Agent            |
-  |                                               |
-  |   RAG + Memory + arXiv Search + LLM           |
-  +-----------------------------------------------+
+  +--------------------------------------------------+
+  |       Academic RAG Agent  v2.0                   |
+  |   Memory-Augmented LLM Agent for Research        |
+  |                                                  |
+  |   LangGraph + Hybrid Search + Survey Writer      |
+  +--------------------------------------------------+
 [/bold cyan]
 """
 
 HELP_TEXT = """
-[bold]可用命令:[/bold]
-  [cyan]load <文件路径>[/cyan]     -- 加载 PDF/TXT/MD 文档到知识库
-  [cyan]load_dir <目录路径>[/cyan]  -- 加载整个目录的文档
-  [cyan]status[/cyan]             -- 查看当前知识库状态
-  [cyan]clear_memory[/cyan]       -- 清空对话历史
-  [cyan]clear_db[/cyan]           -- 清空知识库（慎用！）
-  [cyan]help[/cyan]               -- 显示此帮助
-  [cyan]exit / quit[/cyan]        -- 退出程序
+[bold]Document Commands:[/bold]
+  [cyan]load <path>[/cyan]              -- Index a PDF / TXT / MD file
+  [cyan]load_dir <directory>[/cyan]     -- Index all documents in a folder
 
-[bold]示例问题:[/bold]
-  这篇论文的核心贡献是什么？
-  RAG 和 Fine-tuning 有什么区别？
-  搜索一下 memory augmented LLM agent 相关论文
+[bold]arXiv Commands:[/bold]
+  [cyan]bulk_search <topic> [N][/cyan]  -- Fetch & index N abstracts from arXiv (default 50)
+                               Example: bulk_search RAG large language model 100
+
+[bold]Survey Generation:[/bold]
+  [cyan]survey <topic>[/cyan]           -- Generate a full survey paper (Markdown)
+                               Example: survey Retrieval-Augmented Generation
+  [cyan]survey <topic> --out <file>[/cyan]  -- Save to specific file
+
+[bold]System Commands:[/bold]
+  [cyan]status[/cyan]                   -- Show knowledge base stats
+  [cyan]clear_memory[/cyan]             -- Reset conversation history
+  [cyan]clear_db[/cyan]                 -- Wipe the vector store
+  [cyan]help[/cyan]                     -- Show this help
+  [cyan]exit[/cyan]                     -- Quit
+
+[bold]Example questions:[/bold]
+  What is the core contribution of the Attention paper?
+  How does RAG differ from fine-tuning?
+  Compare the methods in the indexed papers
 """
 
 
@@ -126,6 +139,55 @@ def run_interactive(agent: AcademicRAGAgent, loader: AcademicDocumentLoader, vec
                 if docs:
                     vector_store.add_documents(docs)
                     agent.reload_tools()
+
+            elif user_input.lower().startswith("bulk_search "):
+                # bulk_search <topic> [max_results]
+                # e.g.: bulk_search RAG retrieval augmented generation 100
+                parts = user_input[12:].strip()
+                # Check if last token is a number
+                tokens = parts.split()
+                if tokens and tokens[-1].isdigit():
+                    max_n = int(tokens[-1])
+                    topic = " ".join(tokens[:-1])
+                else:
+                    max_n = 50
+                    topic = parts
+                console.print(
+                    f"[cyan]Bulk indexing up to {max_n} arXiv papers on:[/cyan] {topic}"
+                )
+                docs = bulk_fetch_arxiv(topic, max_results=max_n)
+                if docs:
+                    vector_store.add_documents(docs)
+                    agent.reload_tools()
+                    console.print(
+                        f"[green]{len(docs)} papers indexed. You can now ask questions across all of them![/green]"
+                    )
+
+            elif user_input.lower().startswith("survey "):
+                # survey <topic> [--out filename.md]
+                parts = user_input[7:].strip()
+                out_file = None
+                if "--out " in parts:
+                    idx = parts.index("--out ")
+                    out_file = parts[idx + 6:].strip()
+                    topic = parts[:idx].strip()
+                else:
+                    topic = parts
+
+                if vector_store.doc_count == 0:
+                    console.print(
+                        "[yellow]No documents indexed yet.\n"
+                        "Tip: run 'bulk_search <topic> 50' first to index papers![/yellow]"
+                    )
+                else:
+                    retriever = vector_store.get_hybrid_retriever(k=5)
+                    _, saved_path = generate_survey(
+                        topic=topic,
+                        retriever=retriever,
+                        llm=agent.llm,
+                        output_path=out_file,
+                    )
+                    console.print(f"[bold green]Survey saved to:[/bold green] {saved_path}")
 
             # 正常对话
             else:
